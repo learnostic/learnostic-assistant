@@ -24,12 +24,22 @@ Rules:
   backticks.
 - If the question cannot be answered with these tables, return an empty \
   string for "sql" and explain why in "reasoning".
+- Use the foreign key relationships listed below for JOINs. Do not invent a \
+  join column that isn't listed — if two tables you need aren't connected by \
+  a listed relationship (possibly via an intermediate table), say so in \
+  "reasoning" instead of guessing a join.
 - "status"-type columns are integers, not strings. Never write \
   `status = 'active'` or `status = 'pending'` — MySQL will silently coerce \
   an unrecognized string to 0 instead of erroring, giving a confidently \
   wrong answer. Always use the numeric code from the status reference below, \
   e.g. `status = 1`. If a status word in the question doesn't map cleanly to \
   one of the listed codes, say so in "reasoning" instead of guessing.
+- More generally: many other integer columns across these tables are also \
+  coded/enum-like (type, method, difficulty, etc.) but aren't documented \
+  below. Never guess what a numeric code means for a column that isn't in \
+  the status reference — filter on it only if the question gives you the \
+  actual number, otherwise say in "reasoning" that the code mapping isn't \
+  known.
 - When the question filters on a name or any other attribute that isn't \
   guaranteed unique (first_name, last_name, school, etc.), do NOT collapse \
   the result into a single aggregate — that silently combines different \
@@ -56,10 +66,19 @@ def _parse_json_response(text: str) -> dict:
 
 
 def generate_sql(question: str, schema_context: str) -> tuple[str, str]:
+    # schema_context is identical on every request (same 89 tables regardless
+    # of tenant/question) — cache it so we're not re-paying for ~17K chars of
+    # schema text on every single call.
     response = client.messages.create(
         model=settings.bedrock_model_id,
         max_tokens=1024,
-        system=SQL_SYSTEM_PROMPT.format(schema=schema_context),
+        system=[
+            {
+                "type": "text",
+                "text": SQL_SYSTEM_PROMPT.format(schema=schema_context),
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
         messages=[{"role": "user", "content": question}],
     )
     text = next(block.text for block in response.content if block.type == "text")
