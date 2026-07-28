@@ -1,0 +1,21 @@
+services:
+  assistant-db:
+    image: mysql:8
+    container_name: learnostic-assistant-db
+    ports:
+      - "${FORWARD_DB_PORT:-3307}:3306"
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-devpassword}
+      MYSQL_USER: ${DB_USERNAME:-learnostic_readonly}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-devpassword}
+    volumes:
+      - assistant_mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD
+      interval: 5s
+      retries: 10
+
+volumes:
+  assistant_mysql_data:

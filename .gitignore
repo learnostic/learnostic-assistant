@@ -26,3 +26,8 @@ npm-debug.log*
 
 # Misc
 *.pem
+
+# Local DB seed dumps — real dev data pulled from mpa-db, too large for git
+# (multi-GB, contains base64 images in the `questions` table)
+docker/mysql/init/*.sql
+!docker/mysql/init/*grants*.sql
