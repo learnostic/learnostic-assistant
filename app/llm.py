@@ -6,6 +6,43 @@ from app.config import settings
 
 client = AnthropicBedrockMantle(aws_region=settings.bedrock_region)
 
+
+def _init_langfuse():
+    try:
+        from langfuse import Langfuse
+
+        if settings.langfuse_base_url and settings.langfuse_secret_key and settings.langfuse_public_key:
+            langfuse_client = Langfuse(
+                public_key=settings.langfuse_public_key,
+                secret_key=settings.langfuse_secret_key,
+                host=settings.langfuse_base_url,
+            )
+            print("[Langfuse] Tracing client initialized", flush=True)
+            return langfuse_client
+    except Exception as exc:
+        print(f"[Langfuse] Failed to initialize tracing client: {exc}", flush=True)
+    return None
+
+
+_langfuse = _init_langfuse()
+
+
+def start_trace(question: str, tenant_id: str):
+    if not _langfuse:
+        return None
+    return _langfuse.trace(
+        name="ask",
+        user_id=tenant_id,
+        input={"question": question, "tenant_id": tenant_id},
+    )
+
+
+def finish_trace(trace, sql: str, answer: str) -> None:
+    if not trace:
+        return
+    trace.update(output={"sql": sql, "answer": answer})
+    _langfuse.flush()
+
 SQL_SYSTEM_PROMPT = """\
 You translate staff questions about students into a single read-only SQL \
 query for a MySQL 8 database.
@@ -65,7 +102,27 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(cleaned.strip())
 
 
-def generate_sql(question: str, schema_context: str) -> tuple[str, str]:
+# Claude Sonnet 5 pricing per 1M tokens (Bedrock matches first-party rates).
+SONNET_5_INPUT_COST_PER_1M_USD = 3.0
+SONNET_5_OUTPUT_COST_PER_1M_USD = 15.0
+
+
+def _calc_cost(input_tokens: int, output_tokens: int) -> float:
+    return (
+        input_tokens * SONNET_5_INPUT_COST_PER_1M_USD
+        + output_tokens * SONNET_5_OUTPUT_COST_PER_1M_USD
+    ) / 1_000_000
+
+
+def generate_sql(question: str, schema_context: str, trace=None) -> tuple[str, str, float]:
+    generation = None
+    if trace:
+        generation = trace.generation(
+            name="generate-sql",
+            model=settings.bedrock_model_id,
+            input=question,
+        )
+
     # schema_context is identical on every request (same 89 tables regardless
     # of tenant/question) — cache it so we're not re-paying for ~17K chars of
     # schema text on every single call.
@@ -83,10 +140,31 @@ def generate_sql(question: str, schema_context: str) -> tuple[str, str]:
     )
     text = next(block.text for block in response.content if block.type == "text")
     parsed = _parse_json_response(text)
-    return parsed["sql"], parsed["reasoning"]
+    cost_usd = _calc_cost(response.usage.input_tokens, response.usage.output_tokens)
+
+    if generation:
+        generation.end(
+            output=parsed,
+            usage={
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+                "unit": "TOKENS",
+            },
+        )
+
+    return parsed["sql"], parsed["reasoning"], cost_usd
 
 
-def generate_answer(question: str, sql: str, rows: list[dict]) -> str:
+def generate_answer(question: str, sql: str, rows: list[dict], trace=None) -> tuple[str, float]:
+    generation = None
+    if trace:
+        generation = trace.generation(
+            name="generate-answer",
+            model=settings.bedrock_model_id,
+            input={"question": question, "sql": sql, "row_count": len(rows)},
+        )
+
     response = client.messages.create(
         model=settings.bedrock_model_id,
         max_tokens=1024,
@@ -115,4 +193,18 @@ def generate_answer(question: str, sql: str, rows: list[dict]) -> str:
             }
         ],
     )
-    return next(block.text for block in response.content if block.type == "text")
+    answer = next(block.text for block in response.content if block.type == "text")
+    cost_usd = _calc_cost(response.usage.input_tokens, response.usage.output_tokens)
+
+    if generation:
+        generation.end(
+            output=answer,
+            usage={
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+                "unit": "TOKENS",
+            },
+        )
+
+    return answer, cost_usd

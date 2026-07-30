@@ -11,7 +11,6 @@ DISALLOWED_KEYWORDS = (
 )
 
 TABLE_REF_RE = re.compile(r"\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE)
-TENANT_ID_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 # Matches a bare column reference (optionally table-qualified) that is NOT
 # immediately followed by "(" — that exclusion is what filters out function
@@ -35,13 +34,14 @@ class SqlValidationError(ValueError):
     pass
 
 
-def validate_tenant_id(tenant_id: str) -> str:
-    """Tenant id is used to build the per-tenant database name passed to the
-    MySQL connection — validate strictly before use even though the driver
-    passes it as a connection parameter rather than interpolated SQL."""
-    if not tenant_id or not TENANT_ID_RE.match(tenant_id):
+def validate_tenant_id(tenant_id: int) -> str:
+    """tenant_id is the numeric tenant id sent by the caller. Each tenant is
+    a separate MySQL database named customer_<id> (schema-per-tenant) —
+    build and validate that schema name before it's used as a MySQL
+    connection parameter."""
+    if isinstance(tenant_id, bool) or not isinstance(tenant_id, int) or tenant_id <= 0:
         raise SqlValidationError(f"Invalid tenant id: {tenant_id!r}")
-    return tenant_id
+    return f"customer_{tenant_id}"
 
 
 def _find_top_level_from_index(body: str) -> int:
