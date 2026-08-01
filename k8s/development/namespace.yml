@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: learnostic-assistant-development
+  labels:
+    app: learnostic-assistant
+    environment: development

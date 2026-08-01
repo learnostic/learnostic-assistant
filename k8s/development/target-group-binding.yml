@@ -1,0 +1,11 @@
+apiVersion: eks.amazonaws.com/v1
+kind: TargetGroupBinding
+metadata:
+  name: learnostic-assistant-tgb
+  namespace: learnostic-assistant-development
+spec:
+  targetType: ip
+  targetGroupARN: arn:aws:elasticloadbalancing:eu-west-1:707650680563:targetgroup/learnostic-agent-tg/7fd6b67e0361daf9
+  serviceRef:
+    name: learnostic-assistant-development
+    port: 80

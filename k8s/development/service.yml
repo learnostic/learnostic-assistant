@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: learnostic-assistant-development
+  namespace: learnostic-assistant-development
+  labels:
+    app: learnostic-assistant-development
+    environment: development
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-subnets: subnet-00b1afb952c96dbed,subnet-068e93c96781c4f3d
+spec:
+  type: ClusterIP
+  selector:
+    app: learnostic-assistant-development
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
