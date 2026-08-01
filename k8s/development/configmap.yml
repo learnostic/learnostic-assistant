@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: learnostic-assistant-development-config
+  namespace: learnostic-assistant-development
+data:
+  APP_ENV: development
+
+  AWS_REGION: eu-west-1
+  AWS_DEFAULT_REGION: eu-west-1
+  BEDROCK_REGION: eu-west-1
+
+  DB_PORT: "3306"
+  BEDROCK_MODEL_ID: anthropic.claude-sonnet-5
+
+  LANGFUSE_PUBLIC_KEY: pk-lf-c6f27495-1e36-49c5-8032-d6797dd10143
+  LANGFUSE_BASE_URL: http://k8s-langfuse-langfuse-373f325c40-3dfc67745ff075fc.elb.eu-west-1.amazonaws.com

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: learnostic-assistant-development
+  namespace: learnostic-assistant-development
+  labels:
+    app: learnostic-assistant-development
+    environment: development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: learnostic-assistant-development
+  template:
+    metadata:
+      labels:
+        app: learnostic-assistant-development
+        environment: development
+    spec:
+      serviceAccountName: learnostic-assistant-development-service-account
+      nodeSelector:
+        nodepool: small-instances
+      containers:
+        - name: learnostic-assistant
+          image: 707650680563.dkr.ecr.eu-west-1.amazonaws.com/learnostic-assistant:master-latest
+          imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: learnostic-assistant-development-secrets
+            - configMapRef:
+                name: learnostic-assistant-development-config
+          volumeMounts:
+            - name: secrets-store-inline
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: secrets-store-inline
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "learnostic-assistant-development-secrets-provider"
