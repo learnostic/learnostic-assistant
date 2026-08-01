@@ -22,7 +22,7 @@ spec:
         nodepool: small-instances
       containers:
         - name: learnostic-assistant
-          image: 707650680563.dkr.ecr.eu-west-1.amazonaws.com/learnostic-assistant:master-latest
+          image: 707650680563.dkr.ecr.eu-west-1.amazonaws.com/learnostic-assistant:main-latest
           imagePullPolicy: Always
           envFrom:
             - secretRef:
