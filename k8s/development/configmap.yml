@@ -11,6 +11,7 @@ data:
   BEDROCK_REGION: eu-west-1
 
   DB_PORT: "3306"
+  LEARNOSTIC_DB_REPLICA_ENDPOINT: "myprivateacademy-chatbot-replica.crv8gi2ttjrb.eu-west-1.rds.amazonaws.com"
   BEDROCK_MODEL_ID: anthropic.claude-sonnet-5
 
   LANGFUSE_PUBLIC_KEY: pk-lf-c6f27495-1e36-49c5-8032-d6797dd10143
