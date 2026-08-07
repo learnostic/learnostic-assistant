@@ -16,9 +16,24 @@ class AskRequest(BaseModel):
     tenant_id: int
 
 
+class Table(BaseModel):
+    columns: list[str]
+    rows: list[list[str]]
+
+
 class AskResponse(BaseModel):
     answer: str
     sql: str
+    table: Table | None = None
+
+
+def _build_table(rows: list[dict]) -> Table | None:
+    # A single scalar (one row, one column) reads better as a sentence than
+    # a table — only tabulate when there's an actual grid of data.
+    if not rows or (len(rows) == 1 and len(rows[0]) == 1):
+        return None
+    columns = list(rows[0].keys())
+    return Table(columns=columns, rows=[[str(row[col]) for col in columns] for row in rows])
 
 
 @app.get("/health")
@@ -72,4 +87,4 @@ def ask(request: AskRequest) -> AskResponse:
     finish_trace(trace, sql=validated_sql, answer=answer)
     report_ai_credit_usage(request.tenant_id, total_cost_usd)
 
-    return AskResponse(answer=answer, sql=validated_sql)
+    return AskResponse(answer=answer, sql=validated_sql, table=_build_table(rows))

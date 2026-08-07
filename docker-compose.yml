@@ -17,5 +17,29 @@ services:
       interval: 5s
       retries: 10
 
+  assistant-api:
+    build: .
+    container_name: learnostic-assistant-api
+    ports:
+      # Host 8000 is already taken by another local project (assessment-api's
+      # `php artisan serve`) — use 5777 on both sides instead. Point the
+      # frontend's CHATBOT_API_URL at 5777.
+      - "${FORWARD_API_PORT:-5777}:5777"
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # .env's 127.0.0.1:3307 is the host-mode DB address, only reachable
+      # from the host — inside the compose network, the db is reached by
+      # service name on its internal port instead.
+      LEARNOSTIC_DB_REPLICA_ENDPOINT: assistant-db
+      DB_PORT: 3306
+    volumes:
+      # Reuse the host's AWS credentials/SSO session for Bedrock calls
+      # instead of baking any into the image.
+      - ~/.aws:/home/appuser/.aws:ro
+    depends_on:
+      assistant-db:
+        condition: service_healthy
+
 volumes:
   assistant_mysql_data:
