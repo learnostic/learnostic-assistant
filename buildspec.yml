@@ -1,0 +1,32 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to AWS ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin 707650680563.dkr.ecr.eu-west-1.amazonaws.com
+      - echo Logging into Docker Hub
+      - echo $DOCKERHUB_PASSWORD | docker login --username $DOCKERHUB_USERNAME --password-stdin
+      - REPOSITORY_MAIN=707650680563.dkr.ecr.eu-west-1.amazonaws.com/learnostic-assistant
+      - IMAGE_BRANCH=${GITHUB_BRANCH_NAME:-master}
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - DOCKER_BUILDKIT=1
+  build:
+    commands:
+      - echo Build started on `date`
+
+      - docker build --no-cache --platform linux/amd64 -t $REPOSITORY_MAIN:$IMAGE_BRANCH-latest .
+      - docker tag $REPOSITORY_MAIN:$IMAGE_BRANCH-latest $REPOSITORY_MAIN:$IMAGE_BRANCH-$COMMIT_HASH
+
+  post_build:
+    commands:
+      - echo Build completed on `date`
+
+      - docker push $REPOSITORY_MAIN:$IMAGE_BRANCH-latest
+      - docker push $REPOSITORY_MAIN:$IMAGE_BRANCH-$COMMIT_HASH
+
+      - printf '[{"name":"learnostic-assistant","imageUri":"%s"}]' $REPOSITORY_MAIN:$IMAGE_BRANCH-latest > learnostic-assistant.json
+artifacts:
+  files:
+    - learnostic-assistant.json
+    - 'k8s/**/*'
