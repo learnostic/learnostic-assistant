@@ -1,9 +1,14 @@
+import json
+
 import pymysql
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from botocore.exceptions import ClientError
+
 from app.db import run_query
-from app.llm import finish_trace, generate_answer, generate_sql, start_trace
+from app.llm import finish_trace, generate_answer, generate_answer_json, generate_pdf_answer, generate_sql, start_trace
+from app.pdf_qa import get_index
 from app.schema_context import render_schema_context
 from app.sql_guardrails import SqlValidationError, validate_and_prepare, validate_tenant_id
 from app.webhooks import report_ai_credit_usage
@@ -16,9 +21,39 @@ class AskRequest(BaseModel):
     tenant_id: int
 
 
+class Table(BaseModel):
+    columns: list[str]
+    rows: list[list[str]]
+
+
 class AskResponse(BaseModel):
     answer: str
     sql: str
+    table: Table | None = None
+
+
+class AskJsonResponse(BaseModel):
+    answer: dict
+    sql: str
+    table: Table | None = None
+
+
+class PdfAskRequest(BaseModel):
+    question: str
+    tenant_id: int
+
+
+class PdfAskResponse(BaseModel):
+    answer: str
+
+
+def _build_table(rows: list[dict]) -> Table | None:
+    # A single scalar (one row, one column) reads better as a sentence than
+    # a table — only tabulate when there's an actual grid of data.
+    if not rows or (len(rows) == 1 and len(rows[0]) == 1):
+        return None
+    columns = list(rows[0].keys())
+    return Table(columns=columns, rows=[[str(row[col]) for col in columns] for row in rows])
 
 
 @app.get("/health")
@@ -26,8 +61,13 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest) -> AskResponse:
+def _run_pipeline(request: AskRequest):
+    """Shared question -> SQL -> rows pipeline used by both /ask/text and /ask/json.
+
+    Returns (trace, sql, rows, reasoning, cost_usd). sql=="" and rows==[] mean
+    no query could be generated — reasoning explains why and the caller
+    should return early. Raises HTTPException on validation/db errors.
+    """
     trace = start_trace(request.question, str(request.tenant_id))
 
     try:
@@ -45,7 +85,7 @@ def ask(request: AskRequest) -> AskResponse:
     if not generated_sql:
         finish_trace(trace, sql="", answer=reasoning)
         report_ai_credit_usage(request.tenant_id, total_cost_usd)
-        return AskResponse(answer=reasoning, sql="")
+        return trace, "", [], reasoning, total_cost_usd
 
     try:
         validated_sql = validate_and_prepare(generated_sql)
@@ -67,9 +107,53 @@ def ask(request: AskRequest) -> AskResponse:
             detail=f"Could not reach the database replica: {exc}",
         ) from exc
 
-    answer, answer_cost_usd = generate_answer(request.question, validated_sql, rows, trace=trace)
+    return trace, validated_sql, rows, reasoning, total_cost_usd
+
+
+@app.post("/ask/text", response_model=AskResponse)
+def ask_text(request: AskRequest) -> AskResponse:
+    trace, sql, rows, reasoning, total_cost_usd = _run_pipeline(request)
+
+    if not sql:
+        return AskResponse(answer=reasoning, sql="")
+
+    answer, answer_cost_usd = generate_answer(request.question, sql, rows, trace=trace)
     total_cost_usd += answer_cost_usd
-    finish_trace(trace, sql=validated_sql, answer=answer)
+    finish_trace(trace, sql=sql, answer=answer)
     report_ai_credit_usage(request.tenant_id, total_cost_usd)
 
-    return AskResponse(answer=answer, sql=validated_sql)
+    return AskResponse(answer=answer, sql=sql, table=_build_table(rows))
+
+
+@app.post("/ask/json", response_model=AskJsonResponse)
+def ask_json(request: AskRequest) -> AskJsonResponse:
+    trace, sql, rows, reasoning, total_cost_usd = _run_pipeline(request)
+
+    if not sql:
+        answer = {"summary": reasoning, "empty": True, "ambiguous": False}
+        return AskJsonResponse(answer=answer, sql="")
+
+    answer, answer_cost_usd = generate_answer_json(request.question, sql, rows, trace=trace)
+    total_cost_usd += answer_cost_usd
+    finish_trace(trace, sql=sql, answer=json.dumps(answer))
+    report_ai_credit_usage(request.tenant_id, total_cost_usd)
+
+    return AskJsonResponse(answer=answer, sql=sql, table=_build_table(rows))
+
+
+@app.post("/ask/learnostic-documents", response_model=PdfAskResponse)
+def ask_pdf(request: PdfAskRequest) -> PdfAskResponse:
+    trace = start_trace(request.question, str(request.tenant_id))
+
+    try:
+        index = get_index()
+    except ClientError as exc:
+        finish_trace(trace, sql="", answer=f"[pdf index error] {exc}")
+        raise HTTPException(status_code=503, detail=f"Could not load the reference document: {exc}") from exc
+
+    relevant_pages = index.retrieve(request.question)
+    answer, cost_usd = generate_pdf_answer(request.question, relevant_pages, trace=trace)
+    finish_trace(trace, sql="", answer=answer)
+    report_ai_credit_usage(request.tenant_id, cost_usd)
+
+    return PdfAskResponse(answer=answer)

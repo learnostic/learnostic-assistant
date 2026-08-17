@@ -81,9 +81,16 @@ Rules:
   guaranteed unique (first_name, last_name, school, etc.), do NOT collapse \
   the result into a single aggregate — that silently combines different \
   people into one misleading number. Instead, include identifying columns \
-  (id, first_name, last_name) in the SELECT list and GROUP BY them, so each \
-  matching person's result stays separate. Only aggregate freely when \
-  filtering by a column that is actually unique per person (e.g. student id).
+  (first_name, last_name, email, or similar human-readable attributes) in \
+  the SELECT list and GROUP BY them, so each matching person's result stays \
+  separate. Only aggregate freely when filtering by a column that is \
+  actually unique per person (e.g. student id).
+- Never include an `id` column, or any other primary/foreign key id (e.g. \
+  student_id, invoice_id), in the SELECT list — these are internal database \
+  identifiers with no meaning to staff. Use them freely in WHERE/JOIN/EXISTS \
+  clauses, just never put them in the output columns. Use human-readable \
+  columns (name, email, date, status label, etc.) instead when the result \
+  needs to identify a row.
 
 {schema}
 
@@ -190,6 +197,112 @@ def generate_answer(question: str, sql: str, rows: list[dict], trace=None) -> tu
                     f"SQL run: {sql}\n\n"
                     f"Results (JSON): {json.dumps(rows, default=str)}"
                 ),
+            }
+        ],
+    )
+    answer = next(block.text for block in response.content if block.type == "text")
+    cost_usd = _calc_cost(response.usage.input_tokens, response.usage.output_tokens)
+
+    if generation:
+        generation.end(
+            output=answer,
+            usage={
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+                "unit": "TOKENS",
+            },
+        )
+
+    return answer, cost_usd
+
+
+ANSWER_JSON_SYSTEM_PROMPT = """\
+You turn SQL query results into a structured answer for Learnostic staff.
+
+Respond with ONLY a JSON object of this exact form:
+{"summary": "<one short plain-English sentence>", "empty": <true|false>, \
+"ambiguous": <true|false>}
+
+Rules:
+- If the result set is empty, set "empty": true.
+- If the rows contain more than one distinct person (e.g. several students \
+  sharing a first name), set "ambiguous": true and phrase "summary" as a \
+  clarifying question referencing the rows (e.g. "There are 3 students \
+  named Ali — did you mean one of these?"), since the caller renders the \
+  underlying rows alongside your summary for the user to pick from. Do not \
+  collapse them into one combined number.
+- Otherwise set "ambiguous": false.
+- No markdown, no code fences, no text before or after the JSON object.
+"""
+
+
+def generate_answer_json(question: str, sql: str, rows: list[dict], trace=None) -> tuple[dict, float]:
+    generation = None
+    if trace:
+        generation = trace.generation(
+            name="generate-answer-json",
+            model=settings.bedrock_model_id,
+            input={"question": question, "sql": sql, "row_count": len(rows)},
+        )
+
+    response = client.messages.create(
+        model=settings.bedrock_model_id,
+        max_tokens=1024,
+        system=ANSWER_JSON_SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Question: {question}\n\n"
+                    f"SQL run: {sql}\n\n"
+                    f"Results (JSON): {json.dumps(rows, default=str)}"
+                ),
+            }
+        ],
+    )
+    text = next(block.text for block in response.content if block.type == "text")
+    answer = _parse_json_response(text)
+    cost_usd = _calc_cost(response.usage.input_tokens, response.usage.output_tokens)
+
+    if generation:
+        generation.end(
+            output=answer,
+            usage={
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+                "unit": "TOKENS",
+            },
+        )
+
+    return answer, cost_usd
+
+
+def generate_pdf_answer(question: str, context_pages: list[str], trace=None) -> tuple[str, float]:
+    generation = None
+    if trace:
+        generation = trace.generation(
+            name="generate-pdf-answer",
+            model=settings.bedrock_model_id,
+            input={"question": question, "page_count": len(context_pages)},
+        )
+
+    context = "\n\n---\n\n".join(context_pages)
+
+    response = client.messages.create(
+        model=settings.bedrock_model_id,
+        max_tokens=1024,
+        system=(
+            "You answer staff questions using only the document excerpts "
+            "provided below. If the excerpts don't contain the answer, say "
+            "so plainly instead of guessing. Respond in plain text only — "
+            "no markdown, no **bold**, no bullet points, no headers."
+        ),
+        messages=[
+            {
+                "role": "user",
+                "content": f"Document excerpts:\n\n{context}\n\nQuestion: {question}",
             }
         ],
     )
