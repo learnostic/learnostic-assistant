@@ -17,7 +17,7 @@ def _webhook_url() -> str:
     raise ValueError(f"Unknown APP_ENV: {settings.app_env!r}")
 
 
-def report_ai_credit_usage(tenant_id: int, cost_usd: float) -> None:
+def report_ai_credit_usage(tenant_id: int, tenant_name: str, cost_usd: float) -> None:
     """Best-effort notification to the Laravel backend of AI cost incurred
     for this request. Never raises — a failed usage report shouldn't fail
     the /ask response that already succeeded (or already failed for its own
@@ -27,7 +27,7 @@ def report_ai_credit_usage(tenant_id: int, cost_usd: float) -> None:
             _webhook_url(),
             json={
                 "tenant_id": tenant_id,
-                "tenant_name": str(tenant_id),
+                "tenant_name": tenant_name,
                 "mpa_app_env": settings.app_env,
                 "feature": FEATURE_NAME,
                 "cost_usd": round(cost_usd, 6),

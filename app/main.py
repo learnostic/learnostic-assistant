@@ -19,6 +19,7 @@ app = FastAPI(title="Learnostic Assistant")
 class AskRequest(BaseModel):
     question: str
     tenant_id: int
+    tenant_name: str
 
 
 class Table(BaseModel):
@@ -41,6 +42,7 @@ class AskJsonResponse(BaseModel):
 class PdfAskRequest(BaseModel):
     question: str
     tenant_id: int
+    tenant_name: str
 
 
 class PdfAskResponse(BaseModel):
@@ -84,14 +86,14 @@ def _run_pipeline(request: AskRequest):
 
     if not generated_sql:
         finish_trace(trace, sql="", answer=reasoning)
-        report_ai_credit_usage(request.tenant_id, total_cost_usd)
+        report_ai_credit_usage(request.tenant_id, request.tenant_name, total_cost_usd)
         return trace, "", [], reasoning, total_cost_usd
 
     try:
         validated_sql = validate_and_prepare(generated_sql)
     except SqlValidationError as exc:
         finish_trace(trace, sql=generated_sql, answer=f"[rejected sql] {exc}")
-        report_ai_credit_usage(request.tenant_id, total_cost_usd)
+        report_ai_credit_usage(request.tenant_id, request.tenant_name, total_cost_usd)
         raise HTTPException(status_code=422, detail=f"Generated query rejected: {exc}") from exc
 
     try:
@@ -101,7 +103,7 @@ def _run_pipeline(request: AskRequest):
         # fine while debugging locally, but switch to the generic message
         # before this is reachable from anywhere but localhost.
         finish_trace(trace, sql=validated_sql, answer=f"[db error] {exc}")
-        report_ai_credit_usage(request.tenant_id, total_cost_usd)
+        report_ai_credit_usage(request.tenant_id, request.tenant_name, total_cost_usd)
         raise HTTPException(
             status_code=503,
             detail=f"Could not reach the database replica: {exc}",
@@ -120,7 +122,7 @@ def ask_text(request: AskRequest) -> AskResponse:
     answer, answer_cost_usd = generate_answer(request.question, sql, rows, trace=trace)
     total_cost_usd += answer_cost_usd
     finish_trace(trace, sql=sql, answer=answer)
-    report_ai_credit_usage(request.tenant_id, total_cost_usd)
+    report_ai_credit_usage(request.tenant_id, request.tenant_name, total_cost_usd)
 
     return AskResponse(answer=answer, sql=sql, table=_build_table(rows))
 
@@ -136,7 +138,7 @@ def ask_json(request: AskRequest) -> AskJsonResponse:
     answer, answer_cost_usd = generate_answer_json(request.question, sql, rows, trace=trace)
     total_cost_usd += answer_cost_usd
     finish_trace(trace, sql=sql, answer=json.dumps(answer))
-    report_ai_credit_usage(request.tenant_id, total_cost_usd)
+    report_ai_credit_usage(request.tenant_id, request.tenant_name, total_cost_usd)
 
     return AskJsonResponse(answer=answer, sql=sql, table=_build_table(rows))
 
@@ -154,6 +156,6 @@ def ask_pdf(request: PdfAskRequest) -> PdfAskResponse:
     relevant_pages = index.retrieve(request.question)
     answer, cost_usd = generate_pdf_answer(request.question, relevant_pages, trace=trace)
     finish_trace(trace, sql="", answer=answer)
-    report_ai_credit_usage(request.tenant_id, cost_usd)
+    report_ai_credit_usage(request.tenant_id, request.tenant_name, cost_usd)
 
     return PdfAskResponse(answer=answer)
