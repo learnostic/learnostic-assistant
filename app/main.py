@@ -4,8 +4,11 @@ import pymysql
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from botocore.exceptions import ClientError
+
 from app.db import run_query
-from app.llm import finish_trace, generate_answer, generate_answer_json, generate_sql, start_trace
+from app.llm import finish_trace, generate_answer, generate_answer_json, generate_pdf_answer, generate_sql, start_trace
+from app.pdf_qa import get_index
 from app.schema_context import render_schema_context
 from app.sql_guardrails import SqlValidationError, validate_and_prepare, validate_tenant_id
 from app.webhooks import report_ai_credit_usage
@@ -33,6 +36,15 @@ class AskJsonResponse(BaseModel):
     answer: dict
     sql: str
     table: Table | None = None
+
+
+class PdfAskRequest(BaseModel):
+    question: str
+    tenant_id: int
+
+
+class PdfAskResponse(BaseModel):
+    answer: str
 
 
 def _build_table(rows: list[dict]) -> Table | None:
@@ -127,3 +139,21 @@ def ask_json(request: AskRequest) -> AskJsonResponse:
     report_ai_credit_usage(request.tenant_id, total_cost_usd)
 
     return AskJsonResponse(answer=answer, sql=sql, table=_build_table(rows))
+
+
+@app.post("/ask/learnostic-documents", response_model=PdfAskResponse)
+def ask_pdf(request: PdfAskRequest) -> PdfAskResponse:
+    trace = start_trace(request.question, str(request.tenant_id))
+
+    try:
+        index = get_index()
+    except ClientError as exc:
+        finish_trace(trace, sql="", answer=f"[pdf index error] {exc}")
+        raise HTTPException(status_code=503, detail=f"Could not load the reference document: {exc}") from exc
+
+    relevant_pages = index.retrieve(request.question)
+    answer, cost_usd = generate_pdf_answer(request.question, relevant_pages, trace=trace)
+    finish_trace(trace, sql="", answer=answer)
+    report_ai_credit_usage(request.tenant_id, cost_usd)
+
+    return PdfAskResponse(answer=answer)

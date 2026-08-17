@@ -15,6 +15,9 @@ class Settings(BaseSettings):
 
     bedrock_model_id: str = "anthropic.claude-sonnet-5"
 
+    pdf_s3_bucket: str = "learnostic-assistant-documents"
+    pdf_s3_key: str = "Directors Training Manual.pdf"
+
     learnostic_readonly_db_username: str
     learnostic_readonly_db_password: str
     learnostic_db_replica_endpoint: str

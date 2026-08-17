@@ -277,3 +277,47 @@ def generate_answer_json(question: str, sql: str, rows: list[dict], trace=None) 
         )
 
     return answer, cost_usd
+
+
+def generate_pdf_answer(question: str, context_pages: list[str], trace=None) -> tuple[str, float]:
+    generation = None
+    if trace:
+        generation = trace.generation(
+            name="generate-pdf-answer",
+            model=settings.bedrock_model_id,
+            input={"question": question, "page_count": len(context_pages)},
+        )
+
+    context = "\n\n---\n\n".join(context_pages)
+
+    response = client.messages.create(
+        model=settings.bedrock_model_id,
+        max_tokens=1024,
+        system=(
+            "You answer staff questions using only the document excerpts "
+            "provided below. If the excerpts don't contain the answer, say "
+            "so plainly instead of guessing. Respond in plain text only — "
+            "no markdown, no **bold**, no bullet points, no headers."
+        ),
+        messages=[
+            {
+                "role": "user",
+                "content": f"Document excerpts:\n\n{context}\n\nQuestion: {question}",
+            }
+        ],
+    )
+    answer = next(block.text for block in response.content if block.type == "text")
+    cost_usd = _calc_cost(response.usage.input_tokens, response.usage.output_tokens)
+
+    if generation:
+        generation.end(
+            output=answer,
+            usage={
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+                "unit": "TOKENS",
+            },
+        )
+
+    return answer, cost_usd
