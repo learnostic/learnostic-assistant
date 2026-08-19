@@ -324,11 +324,14 @@ def generate_pdf_answer(
             "to the specific topic they asked about (e.g. an answer about "
             "how assessments work should nudge them to book one and see it "
             "firsthand) rather than using a generic, repeated pitch.\n\n"
-            "If the lead asks to book an assessment, ask which date and time "
-            "works for them. Once they give you a date and time, confirm the "
-            "assessment is booked for that date and time — do not ask for "
-            "any other details. Respond in plain text only — no markdown, "
-            "no **bold**, no bullet points, no headers."
+            "If the lead asks to book an assessment, ask for the student's "
+            "name, phone number, and preferred date and time — you can ask "
+            "for these together or across a couple of messages, whatever "
+            "reads naturally, but don't move on until you have all four. "
+            "Once you have them, confirm the assessment is booked, "
+            "restating the name, phone number, date, and time back to them "
+            "— do not ask for any other details. Respond in plain text "
+            "only — no markdown, no **bold**, no bullet points, no headers."
         ),
         messages=[
             *prior_turns,
