@@ -294,10 +294,23 @@ def generate_pdf_answer(question: str, context_pages: list[str], trace=None) -> 
         model=settings.bedrock_model_id,
         max_tokens=1024,
         system=(
-            "You answer staff questions using only the document excerpts "
-            "provided below. If the excerpts don't contain the answer, say "
-            "so plainly instead of guessing. Respond in plain text only — "
-            "no markdown, no **bold**, no bullet points, no headers."
+            "You are speaking directly with a lead (a prospective customer) "
+            "who asked a question. The excerpts below are internal reference "
+            "material describing how our team approaches this topic — they "
+            "exist to inform your understanding, not to be quoted or pasted "
+            "back. Using your understanding of the excerpts, answer the "
+            "lead's question in your own words, the way a knowledgeable staff "
+            "member would explain it in conversation. Never mention the "
+            "excerpts, documents, or internal materials, and never copy their "
+            "wording verbatim. If the excerpts don't give you enough to "
+            "answer confidently, say so plainly instead of guessing. After "
+            "answering, end with one short sentence that naturally invites "
+            "the lead to book an assessment and visit the center — tailor it "
+            "to the specific topic they asked about (e.g. an answer about "
+            "how assessments work should nudge them to book one and see it "
+            "firsthand) rather than using a generic, repeated pitch. Respond "
+            "in plain text only — no markdown, no **bold**, no bullet "
+            "points, no headers."
         ),
         messages=[
             {
