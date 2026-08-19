@@ -1,4 +1,5 @@
 import json
+from typing import Literal
 
 import pymysql
 from fastapi import FastAPI, HTTPException
@@ -39,10 +40,16 @@ class AskJsonResponse(BaseModel):
     table: Table | None = None
 
 
+class HistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class PdfAskRequest(BaseModel):
     question: str
     tenant_id: int
     tenant_name: str
+    history: list[HistoryMessage] = []
 
 
 class PdfAskResponse(BaseModel):
@@ -154,7 +161,8 @@ def ask_pdf(request: PdfAskRequest) -> PdfAskResponse:
         raise HTTPException(status_code=503, detail=f"Could not load the reference document: {exc}") from exc
 
     relevant_pages = index.retrieve(request.question)
-    answer, cost_usd = generate_pdf_answer(request.question, relevant_pages, trace=trace)
+    history = [turn.model_dump() for turn in request.history]
+    answer, cost_usd = generate_pdf_answer(request.question, relevant_pages, history=history, trace=trace)
     finish_trace(trace, sql="", answer=answer)
     report_ai_credit_usage(request.tenant_id, request.tenant_name, cost_usd)
 

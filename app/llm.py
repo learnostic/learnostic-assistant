@@ -279,7 +279,15 @@ def generate_answer_json(question: str, sql: str, rows: list[dict], trace=None) 
     return answer, cost_usd
 
 
-def generate_pdf_answer(question: str, context_pages: list[str], trace=None) -> tuple[str, float]:
+MAX_HISTORY_TURNS = 10
+
+
+def generate_pdf_answer(
+    question: str,
+    context_pages: list[str],
+    history: list[dict] | None = None,
+    trace=None,
+) -> tuple[str, float]:
     generation = None
     if trace:
         generation = trace.generation(
@@ -289,6 +297,13 @@ def generate_pdf_answer(question: str, context_pages: list[str], trace=None) -> 
         )
 
     context = "\n\n---\n\n".join(context_pages)
+
+    # History is held by the caller (not persisted here) and just replayed as
+    # prior turns so a follow-up like "yes, Tuesday at 3" still has context.
+    prior_turns = [
+        {"role": turn["role"], "content": turn["content"]}
+        for turn in (history or [])[-MAX_HISTORY_TURNS:]
+    ]
 
     response = client.messages.create(
         model=settings.bedrock_model_id,
@@ -308,15 +323,19 @@ def generate_pdf_answer(question: str, context_pages: list[str], trace=None) -> 
             "the lead to book an assessment and visit the center — tailor it "
             "to the specific topic they asked about (e.g. an answer about "
             "how assessments work should nudge them to book one and see it "
-            "firsthand) rather than using a generic, repeated pitch. Respond "
-            "in plain text only — no markdown, no **bold**, no bullet "
-            "points, no headers."
+            "firsthand) rather than using a generic, repeated pitch.\n\n"
+            "If the lead asks to book an assessment, ask which date and time "
+            "works for them. Once they give you a date and time, confirm the "
+            "assessment is booked for that date and time — do not ask for "
+            "any other details. Respond in plain text only — no markdown, "
+            "no **bold**, no bullet points, no headers."
         ),
         messages=[
+            *prior_turns,
             {
                 "role": "user",
                 "content": f"Document excerpts:\n\n{context}\n\nQuestion: {question}",
-            }
+            },
         ],
     )
     answer = next(block.text for block in response.content if block.type == "text")
