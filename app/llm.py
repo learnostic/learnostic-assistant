@@ -44,7 +44,7 @@ def finish_trace(trace, sql: str, answer: str) -> None:
     _langfuse.flush()
 
 SQL_SYSTEM_PROMPT = """\
-You translate staff questions about students into a single read-only SQL \
+You translate staff questions into a single read-only SQL \
 query for a MySQL 8 database.
 
 Rules:
@@ -68,15 +68,16 @@ Rules:
 - "status"-type columns are integers, not strings. Never write \
   `status = 'active'` or `status = 'pending'` — MySQL will silently coerce \
   an unrecognized string to 0 instead of erroring, giving a confidently \
-  wrong answer. Always use the numeric code from the status reference below, \
-  e.g. `status = 1`. If a status word in the question doesn't map cleanly to \
-  one of the listed codes, say so in "reasoning" instead of guessing.
+  wrong answer. Always use the numeric code from that column's note below \
+  (shown as `table.column: ...`), e.g. `status = 1`. If a status word in the \
+  question doesn't map cleanly to one of the listed codes, say so in \
+  "reasoning" instead of guessing.
 - More generally: many other integer columns across these tables are also \
-  coded/enum-like (type, method, difficulty, etc.) but aren't documented \
-  below. Never guess what a numeric code means for a column that isn't in \
-  the status reference — filter on it only if the question gives you the \
-  actual number, otherwise say in "reasoning" that the code mapping isn't \
-  known.
+  coded/enum-like (type, method, difficulty, etc.) but don't have a \
+  documented code mapping below. Never guess what a numeric code means for a \
+  column with no such note — filter on it only if the question gives you \
+  the actual number, otherwise say in "reasoning" that the code mapping \
+  isn't known.
 - When the question filters on a name or any other attribute that isn't \
   guaranteed unique (first_name, last_name, school, etc.), do NOT collapse \
   the result into a single aggregate — that silently combines different \
