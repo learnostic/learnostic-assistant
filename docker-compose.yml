@@ -21,10 +21,12 @@ services:
     build: .
     container_name: learnostic-assistant-api
     ports:
-      # Host 8000 is already taken by another local project (assessment-api's
-      # `php artisan serve`) — use 5777 on both sides instead. Point the
-      # frontend's CHATBOT_API_URL at 5777.
-      - "${FORWARD_API_PORT:-5777}:5777"
+      # Host 8000 is already taken by another local project (mpa-app's
+      # `php artisan serve`) — publish on 5777 instead. The container itself
+      # listens on 8000 internally (matches the Dockerfile CMD and the k8s
+      # deployment's containerPort: 8000) — only the host-side port differs
+      # locally. Point the frontend's CHATBOT_API_URL at 5777.
+      - "${FORWARD_API_PORT:-5777}:8000"
     restart: unless-stopped
     env_file: .env
     environment:
