@@ -13,7 +13,7 @@ from app.schema_source import get_schema
 
 def get_allowed_tables() -> dict[str, list[str]]:
     """table -> column names. This is the security allowlist sql_guardrails.py
-    validates every generated query against — not just prompt context."""
+    validates every generated query against."""
     return {
         name: [column["name"] for column in table["columns"]]
         for name, table in get_schema()["tables"].items()
@@ -42,7 +42,11 @@ def render_schema_context() -> str:
             )
 
     examples = schema.get("examples", {})
-    example_lines = [f"- {key}: {value}" for key, value in examples.items() if isinstance(value, str)]
+    example_lines = [
+        f"- {key}: {value}"
+        for key, value in examples.items()
+        if isinstance(value, str)
+    ]
     ai_rules = examples.get("ai_rules", [])
     rule_lines = [f"- {rule}" for rule in ai_rules]
 
