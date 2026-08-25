@@ -32,9 +32,9 @@ SELECT_LIST_IGNORE_TOKENS = {
 }
 
 def _allowed_columns() -> set[str]:
-    # get_allowed_tables() reads from schema_source's process-lifetime cache
-    # (see app/schema_source.py) — this is a cheap dict comprehension over
-    # already-fetched data, not a network call, so recomputing per validation
+    # get_allowed_tables() reads from schema_data's process-lifetime cache
+    # (see app/schema_data.py) — this is a cheap dict comprehension over
+    # already-loaded data, not a disk read, so recomputing per validation
     # call is fine.
     return {
         column.lower()

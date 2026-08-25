@@ -18,11 +18,6 @@ class Settings(BaseSettings):
     pdf_s3_bucket: str = "learnostic-assistant-documents"
     pdf_s3_key: str = "Directors Training Manual.pdf"
 
-    # Tenant DB schema, exported by mpa-app (php artisan mpa:export-ai-schema)
-    # on every deploy. schema/current.json is a small pointer {hash, key} —
-    # fetched first to check for a new version before pulling the full file.
-    ai_schema_bucket: str = "learnostic-ai-live-db-schema-707650680563-eu-west-1-an"
-
     learnostic_readonly_db_username: str
     learnostic_readonly_db_password: str
     learnostic_db_replica_endpoint: str

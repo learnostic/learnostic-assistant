@@ -1,14 +1,13 @@
-# Schema context is sourced live from S3 (see app/schema_source.py), not
-# hardcoded here — mpa-app exports it fresh on every deploy via
-# `php artisan mpa:export-ai-schema`, so this file can no longer drift out of
-# sync with the real tenant schema the way a hand-maintained dict would.
+# Schema + semantic descriptions are maintained by hand in
+# app/schema_data.json (see app/schema_data.py) — update that file directly
+# when the DB schema or a semantic note changes.
 #
 # Sensitive columns (password, remember_token, secret, otp*, salary,
-# national_id_number, passport_number, login_name, etc.) are stripped at
-# export time on the mpa-app side (ExportAiSchema.php's $excludedColumns) —
-# they never reach this process at all, not just hidden from the prompt.
+# national_id_number, passport_number, login_name, etc.) must never be added
+# to app/schema_data.json — they should never reach this process at all, not
+# just be hidden from the prompt.
 
-from app.schema_source import get_schema
+from app.schema_data import get_schema
 
 
 def get_allowed_tables() -> dict[str, list[str]]:
