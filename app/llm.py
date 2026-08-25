@@ -92,6 +92,11 @@ Rules:
   clauses, just never put them in the output columns. Use human-readable \
   columns (name, email, date, status label, etc.) instead when the result \
   needs to identify a row.
+- If a table has a `deleted_at` column, it uses soft deletes — a non-null \
+  value means that row is deleted. Always add `deleted_at IS NULL` to your \
+  WHERE clause for any such table, unless the question explicitly asks about \
+  deleted/removed records. Forgetting this silently counts deleted rows as \
+  if they were still active.
 
 {schema}
 
