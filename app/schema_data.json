@@ -5308,7 +5308,7 @@
           "type": "date",
           "nullable": false,
           "key": "MUL",
-          "description": null
+          "description": "The date this payment was received/recorded. Use this column (not created_at) for \"payments received in <period>\" questions."
         },
         {
           "name": "description",
@@ -5343,7 +5343,7 @@
           "type": "varchar(255)",
           "nullable": false,
           "key": null,
-          "description": null
+          "description": "What this payment record represents. Values: invoice/collection (a real payment received) or creditnote (a credit-note-related reversal \u2014 netted OUT of \"payments received\", not just excluded). Never guess a value outside this list."
         },
         {
           "name": "deleted_at",
@@ -5374,7 +5374,7 @@
           "references_column": "id"
         }
       ],
-      "description": "Actual payments received from customers \u2014 the primary payment-receipt table. A payment does not necessarily map 1:1 to an invoice; a payment can exist before its full value is allocated (balance = amount - allocated so far, available for future allocation). For \"how much money did we receive\", query this table, not invoices. The \"Unallocated payments\" dashboard figure is SUM(balance) WHERE balance > 0 \u2014 an all-time running balance across every payment ever received, with no date filter. Do not scope it to a period even if the question says \"this month\"/\"this week\" \u2014 like customer_balances, it is a current-state stock metric, not a flow metric for that period."
+      "description": "Actual payments received from customers \u2014 the primary payment-receipt table. A payment does not necessarily map 1:1 to an invoice; a payment can exist before its full value is allocated (balance = amount - allocated so far, available for future allocation). For \"how much money did we receive\", query this table, not invoices. The \"Unallocated payments\" dashboard figure is SUM(balance) WHERE balance > 0 \u2014 an all-time running balance across every payment ever received, with no date filter. Do not scope it to a period even if the question says \"this month\"/\"this week\" \u2014 like customer_balances, it is a current-state stock metric, not a flow metric for that period. The dashboard \"Payments received\" figure is NOT a plain SUM(amount): it is SUM(amount) WHERE payment_for <> 'creditnote' MINUS SUM(amount) WHERE payment_for = 'creditnote' (credit-note rows are netted out, i.e. subtracted, not simply excluded), filtered by date within the period, AND deleted_at IS NULL. Equivalently: SUM(IF(payment_for <> 'creditnote', amount, -amount))."
     },
     "payment_histories": {
       "columns": [
@@ -7867,7 +7867,8 @@
       "For \"invoices issued\" in a period (matching the dashboard Invoices Issued figure): SUM(invoices.total) WHERE status NOT IN (0, 3) AND type != 'creditnote', filtered on start_date within the period. Excludes awaiting-approval (0), void (3), and credit notes.",
       "All monetary amounts in this system are in AED unless a question is explicitly about a different currency \u2014 include \"AED\" when stating a money amount in an answer.",
       "\"Unallocated payments\" (matching the dashboard) = SUM(payment_collections.balance) WHERE balance > 0 AND deleted_at IS NULL. This is an all-time running balance, not scoped to any date range \u2014 ignore a \"this month\"/\"this week\" qualifier in the question for this specific metric, since it describes leftover unapplied money accumulated over all time, not payments received in that period.",
-      "\"Prospective students\"/\"Paused students\"/\"Active students\"/\"Inactive students\" (matching the dashboard) = COUNT(*) FROM students WHERE status = 2/3/1/0 respectively AND deleted_at IS NULL. Never date-filter these \u2014 status is a current snapshot, not a period total. Only a question about students who newly entered a status in a period (e.g. \"how many students became prospective this month\") would need created_at/updated_at scoping, and even then there is no column that records when status last changed, so that question cannot be answered from this table alone."
+      "\"Prospective students\"/\"Paused students\"/\"Active students\"/\"Inactive students\" (matching the dashboard) = COUNT(*) FROM students WHERE status = 2/3/1/0 respectively AND deleted_at IS NULL. Never date-filter these \u2014 status is a current snapshot, not a period total. Only a question about students who newly entered a status in a period (e.g. \"how many students became prospective this month\") would need created_at/updated_at scoping, and even then there is no column that records when status last changed, so that question cannot be answered from this table alone.",
+      "\"Payments received\" (matching the dashboard) = SUM(IF(payment_for <> 'creditnote', amount, -amount)) FROM payment_collections WHERE date BETWEEN <period> AND deleted_at IS NULL. Credit-note payment rows (payment_for = 'creditnote') are netted OUT (subtracted), not simply excluded with a WHERE filter \u2014 a plain SUM(amount) or a SUM that only filters payment_for <> 'creditnote' will overcount by roughly 2x the credit-note total for the period."
     ]
   }
 }
