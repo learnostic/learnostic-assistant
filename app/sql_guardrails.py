@@ -1,6 +1,6 @@
 import re
 
-from app.schema_context import ALLOWED_TABLES
+from app.schema_context import get_allowed_tables
 
 DEFAULT_ROW_LIMIT = 500
 
@@ -21,13 +21,26 @@ STRING_LITERAL_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 AS_ALIAS_RE = re.compile(r"\bAS\s+[a-zA-Z_][a-zA-Z0-9_]*\b", re.IGNORECASE)
 LEADING_SELECT_RE = re.compile(r"^\s*SELECT\s+(DISTINCT\s+)?", re.IGNORECASE)
 
-SELECT_LIST_IGNORE_TOKENS = {"distinct", "true", "false", "null"}
-
-ALLOWED_COLUMNS = {
-    column.lower()
-    for columns in ALLOWED_TABLES.values()
-    for column in columns
+SELECT_LIST_IGNORE_TOKENS = {
+    "distinct", "true", "false", "null",
+    # CASE-expression keywords — bare tokens like "case column_list" would
+    # otherwise get scanned by COLUMN_TOKEN_RE as if they were column
+    # references, since they aren't followed by "(" the way a function call
+    # is. This came up for real: SUM(CASE WHEN method IN (...) THEN 1 ELSE 0
+    # END) got rejected because "case" wasn't allowlisted.
+    "case", "when", "then", "else", "end",
 }
+
+def _allowed_columns() -> set[str]:
+    # get_allowed_tables() reads from schema_data's process-lifetime cache
+    # (see app/schema_data.py) — this is a cheap dict comprehension over
+    # already-loaded data, not a disk read, so recomputing per validation
+    # call is fine.
+    return {
+        column.lower()
+        for columns in get_allowed_tables().values()
+        for column in columns
+    }
 
 
 class SqlValidationError(ValueError):
@@ -77,7 +90,7 @@ def _validate_select_columns(body: str) -> None:
         column = match.group(1).lower()
         if column in SELECT_LIST_IGNORE_TOKENS:
             continue
-        if column not in ALLOWED_COLUMNS:
+        if column not in _allowed_columns():
             raise SqlValidationError(f"Query selects a non-allowlisted column: {column}")
 
 
@@ -101,7 +114,7 @@ def validate_and_prepare(sql: str) -> str:
             raise SqlValidationError(f"Disallowed keyword in query: {keyword}")
 
     referenced_tables = {match.lower() for match in TABLE_REF_RE.findall(body)}
-    allowed_tables = {t.lower() for t in ALLOWED_TABLES}
+    allowed_tables = {t.lower() for t in get_allowed_tables()}
     disallowed_tables = referenced_tables - allowed_tables
     if disallowed_tables:
         raise SqlValidationError(f"Query references non-allowlisted table(s): {disallowed_tables}")
