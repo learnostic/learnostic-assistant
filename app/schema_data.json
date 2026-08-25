@@ -3595,14 +3595,14 @@
           "type": "date",
           "nullable": false,
           "key": "MUL",
-          "description": null
+          "description": "Effective/issue date of the invoice. For \"invoices issued in <period>\" questions, filter on this column \u2014 not created_at (record-insert timestamp) or updated_at."
         },
         {
           "name": "end_date",
           "type": "date",
           "nullable": false,
           "key": "MUL",
-          "description": null
+          "description": "Period end date the invoice covers (relevant for recurring/subscription-style invoices), not a due date."
         },
         {
           "name": "invoice_number",
@@ -3686,7 +3686,7 @@
           "type": "varchar(255)",
           "nullable": false,
           "key": null,
-          "description": "Distinguishes a normal invoice from a credit note."
+          "description": "Exact values: invoice (normal charge) or creditnote (reduces/reverses a prior charge). Never guess another value."
         },
         {
           "name": "outstanding",
@@ -3757,7 +3757,7 @@
           "references_column": "id"
         }
       ],
-      "description": "Master financial-document table. A row is either a normal invoice (increases amount owed) or a credit note (reduces/reverses a prior charge), distinguished by type. status: 0=awaiting approval, 1=awaiting payment (invoice) or awaiting allocation (credit note), 2=paid, 3=void. outstanding = total - allocated amount. Do not sum invoices.total to answer \"how much does a customer owe\" \u2014 use status/type plus payments/allocations."
+      "description": "Master financial-document table. A row is either a normal invoice (increases amount owed) or a credit note (reduces/reverses a prior charge), distinguished by type. status: 0=awaiting approval, 1=awaiting payment (invoice) or awaiting allocation (credit note), 2=paid, 3=void. outstanding = total - allocated amount. Do not sum invoices.total to answer \"how much does a customer owe\" \u2014 use status/type plus payments/allocations. To match the \"Invoices Issued\" report/dashboard figure: SUM(total) WHERE status NOT IN (0, 3) AND type != 'creditnote', filtered by start_date within the period (not created_at) \u2014 excludes awaiting-approval, void, and credit note rows. A naive SUM(total) with only a date filter will overcount."
     },
     "job_designations": {
       "columns": [
@@ -5374,7 +5374,7 @@
           "references_column": "id"
         }
       ],
-      "description": "Actual payments received from customers \u2014 the primary payment-receipt table. A payment does not necessarily map 1:1 to an invoice; a payment can exist before its full value is allocated (balance = amount - allocated so far, available for future allocation). For \"how much money did we receive\", query this table, not invoices."
+      "description": "Actual payments received from customers \u2014 the primary payment-receipt table. A payment does not necessarily map 1:1 to an invoice; a payment can exist before its full value is allocated (balance = amount - allocated so far, available for future allocation). For \"how much money did we receive\", query this table, not invoices. The \"Unallocated payments\" dashboard figure is SUM(balance) WHERE balance > 0 \u2014 an all-time running balance across every payment ever received, with no date filter. Do not scope it to a period even if the question says \"this month\"/\"this week\" \u2014 like customer_balances, it is a current-state stock metric, not a flow metric for that period."
     },
     "payment_histories": {
       "columns": [
@@ -6625,7 +6625,7 @@
           "references_column": "id"
         }
       ],
-      "description": "Students are treated as the customer/account entity throughout the invoicing subsystem \u2014 \"customer\", \"student\", and \"learner account\" typically refer to the same financial entity, even though parents/relatives may be the ones who pay or receive notifications."
+      "description": "Students are treated as the customer/account entity throughout the invoicing subsystem \u2014 \"customer\", \"student\", and \"learner account\" typically refer to the same financial entity, even though parents/relatives may be the ones who pay or receive notifications. The dashboard \"Prospective Students\"/\"Paused Students\"/\"Active Students\"/\"Inactive Students\" figures are COUNT(*) WHERE status = <code> AND deleted_at IS NULL \u2014 a current-status snapshot with no date filter, even when the question says \"this month\". Only \"New students\" is a true period metric (COUNT WHERE created_at within the period)."
     },
     "students_assesments": {
       "columns": [
@@ -7863,7 +7863,11 @@
       "Credit notes reduce or reverse charges and must be included in balance calculations, not ignored.",
       "Voided invoices (status=3) are not active receivables and should be excluded from outstanding-balance calculations.",
       "customer_balances is money; package_balances is educational/service units. Do not conflate the two when a question could mean either.",
-      "When a question asks why a value changed, prefer ledger/history tables (customer_transactions, payment_histories, package_balance_ledger) over current-state summary tables (customer_balances, package_balances, invoices.outstanding)."
+      "When a question asks why a value changed, prefer ledger/history tables (customer_transactions, payment_histories, package_balance_ledger) over current-state summary tables (customer_balances, package_balances, invoices.outstanding).",
+      "For \"invoices issued\" in a period (matching the dashboard Invoices Issued figure): SUM(invoices.total) WHERE status NOT IN (0, 3) AND type != 'creditnote', filtered on start_date within the period. Excludes awaiting-approval (0), void (3), and credit notes.",
+      "All monetary amounts in this system are in AED unless a question is explicitly about a different currency \u2014 include \"AED\" when stating a money amount in an answer.",
+      "\"Unallocated payments\" (matching the dashboard) = SUM(payment_collections.balance) WHERE balance > 0 AND deleted_at IS NULL. This is an all-time running balance, not scoped to any date range \u2014 ignore a \"this month\"/\"this week\" qualifier in the question for this specific metric, since it describes leftover unapplied money accumulated over all time, not payments received in that period.",
+      "\"Prospective students\"/\"Paused students\"/\"Active students\"/\"Inactive students\" (matching the dashboard) = COUNT(*) FROM students WHERE status = 2/3/1/0 respectively AND deleted_at IS NULL. Never date-filter these \u2014 status is a current snapshot, not a period total. Only a question about students who newly entered a status in a period (e.g. \"how many students became prospective this month\") would need created_at/updated_at scoping, and even then there is no column that records when status last changed, so that question cannot be answered from this table alone."
     ]
   }
 }
