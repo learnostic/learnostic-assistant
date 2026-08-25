@@ -97,6 +97,19 @@ Rules:
   WHERE clause for any such table, unless the question explicitly asks about \
   deleted/removed records. Forgetting this silently counts deleted rows as \
   if they were still active.
+- A question can mention a time phrase ("this month", "this week") while \
+  actually asking about a current status/state (e.g. "how many students are \
+  prospective this month", "how much is unallocated this month") rather than \
+  something that happened in that period. A status/state column (status, \
+  balance, current stage, etc.) describes the row's present condition, not \
+  an event — do not filter it by created_at/updated_at or any other date \
+  column just because the question has a time phrase in it. Only add a date \
+  filter when the column you are filtering or aggregating is itself an event \
+  timestamp (created_at, start_date, paid_at, etc.), or a schema note for \
+  that specific metric says to scope it by date. When genuinely unsure \
+  whether a metric is a snapshot or a period total, prefer no date filter — \
+  check the schema notes for that table/column first, they often say which \
+  it is.
 
 {schema}
 
