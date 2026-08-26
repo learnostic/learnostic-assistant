@@ -301,12 +301,16 @@ def generate_answer_json(question: str, sql: str, rows: list[dict], trace=None) 
 MAX_HISTORY_TURNS = 10
 
 
-def generate_pdf_answer(
+def generate_pdf_answer_stream(
     question: str,
     context_pages: list[str],
     history: list[dict] | None = None,
     trace=None,
-) -> tuple[str, float]:
+):
+    """Yields the answer text as it's generated. The caller must fully
+    consume the generator (including after its last yield) to reach the
+    trailing Langfuse generation.end() call, issued once the stream
+    completes."""
     generation = None
     if trace:
         generation = trace.generation(
@@ -324,7 +328,7 @@ def generate_pdf_answer(
         for turn in (history or [])[-MAX_HISTORY_TURNS:]
     ]
 
-    response = client.messages.create(
+    with client.messages.stream(
         model=settings.bedrock_model_id,
         max_tokens=1024,
         system=(
@@ -366,19 +370,18 @@ def generate_pdf_answer(
                 "content": f"Document excerpts:\n\n{context}\n\nQuestion: {question}",
             },
         ],
-    )
-    answer = next(block.text for block in response.content if block.type == "text")
-    cost_usd = _calc_cost(response.usage.input_tokens, response.usage.output_tokens)
+    ) as stream:
+        yield from stream.text_stream
+        final = stream.get_final_message()
 
     if generation:
+        answer = next(block.text for block in final.content if block.type == "text")
         generation.end(
             output=answer,
             usage={
-                "input": response.usage.input_tokens,
-                "output": response.usage.output_tokens,
-                "total": response.usage.input_tokens + response.usage.output_tokens,
+                "input": final.usage.input_tokens,
+                "output": final.usage.output_tokens,
+                "total": final.usage.input_tokens + final.usage.output_tokens,
                 "unit": "TOKENS",
             },
         )
-
-    return answer, cost_usd
