@@ -3,12 +3,13 @@ from typing import Literal
 
 import pymysql
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from botocore.exceptions import ClientError
 
 from app.db import run_query
-from app.llm import finish_trace, generate_answer, generate_answer_json, generate_pdf_answer, generate_sql, start_trace
+from app.llm import finish_trace, generate_answer, generate_answer_json, generate_pdf_answer_stream, generate_sql, start_trace
 from app.pdf_qa import get_index
 from app.schema_context import render_schema_context
 from app.sql_guardrails import SqlValidationError, validate_and_prepare, validate_tenant_id
@@ -50,10 +51,6 @@ class PdfAskRequest(BaseModel):
     tenant_id: int
     tenant_name: str
     history: list[HistoryMessage] = []
-
-
-class PdfAskResponse(BaseModel):
-    answer: str
 
 
 def _build_table(rows: list[dict]) -> Table | None:
@@ -150,8 +147,8 @@ def ask_json(request: AskRequest) -> AskJsonResponse:
     return AskJsonResponse(answer=answer, sql=sql, table=_build_table(rows))
 
 
-@app.post("/ask/learnostic-documents", response_model=PdfAskResponse)
-def ask_pdf(request: PdfAskRequest) -> PdfAskResponse:
+@app.post("/ask/learnostic-documents")
+def ask_pdf(request: PdfAskRequest) -> StreamingResponse:
     trace = start_trace(request.question, str(request.tenant_id))
 
     try:
@@ -162,8 +159,16 @@ def ask_pdf(request: PdfAskRequest) -> PdfAskResponse:
 
     relevant_pages = index.retrieve(request.question)
     history = [turn.model_dump() for turn in request.history]
-    answer, cost_usd = generate_pdf_answer(request.question, relevant_pages, history=history, trace=trace)
-    finish_trace(trace, sql="", answer=answer)
-    report_ai_credit_usage(request.tenant_id, request.tenant_name, cost_usd)
 
-    return PdfAskResponse(answer=answer)
+    def stream_answer():
+        # No cost webhook for this endpoint (unlike /ask/text and
+        # /ask/json) — accumulate only for the trailing Langfuse trace.
+        chunks = []
+        try:
+            for chunk in generate_pdf_answer_stream(request.question, relevant_pages, history=history, trace=trace):
+                chunks.append(chunk)
+                yield chunk
+        finally:
+            finish_trace(trace, sql="", answer="".join(chunks))
+
+    return StreamingResponse(stream_answer(), media_type="text/plain")
