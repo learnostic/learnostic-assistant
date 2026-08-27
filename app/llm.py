@@ -330,10 +330,15 @@ def generate_pdf_answer_stream(
 
     with client.messages.stream(
         model=settings.bedrock_model_id,
-        max_tokens=1024,
+        max_tokens=400,
         system=(
             "You are speaking directly with a lead (a prospective customer) "
-            "who asked a question. The excerpts below are internal reference "
+            "who asked a question. Keep your answer short — 2 to 4 sentences "
+            "for most questions, like a real conversational reply, not a "
+            "comprehensive report. Answer only what they actually asked; "
+            "leave out other related details the excerpts happen to cover, "
+            "even if relevant-adjacent — they can always ask a follow-up. "
+            "The excerpts below are internal reference "
             "material describing how our team approaches this topic — they "
             "exist to inform your understanding, not to be quoted or pasted "
             "back. Using your understanding of the excerpts, answer the "
