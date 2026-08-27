@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from botocore.exceptions import ClientError
 
 from app.db import run_query
-from app.llm import finish_trace, generate_answer, generate_answer_json, generate_pdf_answer_stream, generate_sql, start_trace
+from app.llm import classify_lead_status, finish_trace, generate_answer, generate_answer_json, generate_pdf_answer_stream, generate_sql, start_trace
 from app.pdf_qa import get_index
 from app.schema_context import render_schema_context
 from app.sql_guardrails import SqlValidationError, validate_and_prepare, validate_tenant_id
@@ -160,12 +160,25 @@ def ask_pdf(request: PdfAskRequest) -> StreamingResponse:
     relevant_pages = index.retrieve(request.question)
     history = [turn.model_dump() for turn in request.history]
 
+    # Classified before the streamed reply starts, since the reply's tone
+    # (see STATUS_GUIDANCE) depends on it — this is a real added delay
+    # (a full extra model round trip) before the first token, traded for a
+    # reply that actually behaves differently at each stage of the lead's
+    # conversation rather than just a fixed persona.
+    lead_status = classify_lead_status(request.question, history=history, trace=trace)
+
     def stream_answer():
         # No cost webhook for this endpoint (unlike /ask/text and
         # /ask/json) — accumulate only for the trailing Langfuse trace.
         chunks = []
         try:
-            for chunk in generate_pdf_answer_stream(request.question, relevant_pages, history=history, trace=trace):
+            for chunk in generate_pdf_answer_stream(
+                request.question,
+                relevant_pages,
+                history=history,
+                lead_status=lead_status,
+                trace=trace,
+            ):
                 chunks.append(chunk)
                 yield chunk
         finally:

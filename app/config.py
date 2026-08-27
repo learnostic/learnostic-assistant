@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     db_port: int = 3306
 
     bedrock_model_id: str = "anthropic.claude-sonnet-5"
+    # Small/fast model for the lead-status classification call (not the
+    # conversational reply) — a simple classification task doesn't need the
+    # main model, and keeps that extra call's added cost/latency low.
+    bedrock_haiku_model_id: str = "anthropic.claude-haiku-4-5"
 
     pdf_s3_bucket: str = "learnostic-assistant-documents"
     pdf_s3_key: str = "Directors Training Manual.pdf"
