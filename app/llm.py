@@ -300,11 +300,120 @@ def generate_answer_json(question: str, sql: str, rows: list[dict], trace=None) 
 
 MAX_HISTORY_TURNS = 10
 
+# Where a lead sits in the enrollment conversation. Re-classified fresh from
+# the whole conversation on every message (not carried forward from the
+# previous status), so a lead can move backward as naturally as forward —
+# e.g. someone in booking_in_progress who goes quiet and asks an unrelated
+# question drops back to seeking_info.
+LEAD_STATUSES = ["new", "seeking_info", "qualified", "booking_in_progress", "booked"]
+DEFAULT_LEAD_STATUS = "seeking_info"
+
+# How the conversational reply should behave at each stage — written the way
+# an experienced human enrollment advisor would naturally act, not a rigid
+# checklist. Injected into generate_pdf_answer_stream's system prompt.
+STATUS_GUIDANCE = {
+    "new": (
+        "The lead just started the conversation. A good advisor doesn't "
+        "pitch a stranger — get curious first. Ask about the child and "
+        "what's going on before offering anything. Do not mention booking "
+        "an assessment yet — you don't know enough to make that useful."
+    ),
+    "seeking_info": (
+        "The lead is asking questions and evaluating whether to trust us. "
+        "Answer thoroughly and build trust — let credibility do the work. "
+        "Mention an assessment naturally if it genuinely fits what they "
+        "asked, the way you'd casually suggest it's something we can "
+        "properly figure out for them — not a hard pitch."
+    ),
+    "qualified": (
+        "The lead has shown clear intent (a specific child, a specific "
+        "need, genuinely engaged). A human advisor can feel when someone's "
+        "ready and stops hedging — be direct: propose booking the "
+        "assessment plainly and ask when works for them. Directness here "
+        "isn't pushy, it's what they've been waiting for."
+    ),
+    "booking_in_progress": (
+        "The lead is actively giving booking details. Get efficient, like "
+        "an advisor with a pen in hand — focus only on collecting whatever "
+        "of the student's name, phone number, and preferred date/time is "
+        "still missing (check the conversation first, never re-ask for "
+        "something already given). Don't wander into general chat or new "
+        "topics until the booking is confirmed."
+    ),
+    "booked": (
+        "The assessment is confirmed. Close warmly — confirm the details, "
+        "set expectations for the visit, answer any last logistics "
+        "questions. Stop selling; the ask is done. Shift fully to "
+        "reassurance, the way an advisor relaxes once a booking is locked "
+        "in."
+    ),
+}
+
+CLASSIFY_LEAD_STATUS_SYSTEM_PROMPT = """\
+You classify where a prospective lead is in an enrollment conversation \
+with a tutoring center, the way an experienced human enrollment advisor \
+would naturally read the conversation and judge how far along it is. \
+Judge the whole conversation fresh — the lead can be moving backward as \
+easily as forward (e.g. someone who was giving booking details but then \
+goes quiet and asks an unrelated question has moved back to seeking_info).
+
+Respond with exactly one of these words, nothing else, no punctuation:
+new — first message, nothing shared yet
+seeking_info — asking questions, evaluating, no clear intent to book yet
+qualified — clear intent shown (a specific child/need, genuinely engaged) but hasn't started giving booking details
+booking_in_progress — actively giving name, phone, or date/time to book
+booked — the assessment has been confirmed as booked
+"""
+
+
+def classify_lead_status(
+    question: str,
+    history: list[dict] | None = None,
+    trace=None,
+) -> str:
+    generation = None
+    if trace:
+        generation = trace.generation(
+            name="classify-lead-status",
+            model=settings.bedrock_haiku_model_id,
+            input={"question": question},
+        )
+
+    prior_turns = [
+        {"role": turn["role"], "content": turn["content"]}
+        for turn in (history or [])[-MAX_HISTORY_TURNS:]
+    ]
+
+    response = client.messages.create(
+        model=settings.bedrock_haiku_model_id,
+        max_tokens=20,
+        system=CLASSIFY_LEAD_STATUS_SYSTEM_PROMPT,
+        messages=[*prior_turns, {"role": "user", "content": question}],
+    )
+    raw = next(block.text for block in response.content if block.type == "text")
+    status = raw.strip().lower()
+    if status not in LEAD_STATUSES:
+        status = DEFAULT_LEAD_STATUS
+
+    if generation:
+        generation.end(
+            output=status,
+            usage={
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+                "unit": "TOKENS",
+            },
+        )
+
+    return status
+
 
 def generate_pdf_answer_stream(
     question: str,
     context_pages: list[str],
     history: list[dict] | None = None,
+    lead_status: str = DEFAULT_LEAD_STATUS,
     trace=None,
 ):
     """Yields the answer text as it's generated. The caller must fully
@@ -316,7 +425,7 @@ def generate_pdf_answer_stream(
         generation = trace.generation(
             name="generate-pdf-answer",
             model=settings.bedrock_model_id,
-            input={"question": question, "page_count": len(context_pages)},
+            input={"question": question, "page_count": len(context_pages), "lead_status": lead_status},
         )
 
     context = "\n\n---\n\n".join(context_pages)
@@ -330,14 +439,19 @@ def generate_pdf_answer_stream(
 
     with client.messages.stream(
         model=settings.bedrock_model_id,
-        max_tokens=400,
+        max_tokens=220,
         system=(
+            f"Where this lead is in the conversation right now: "
+            f"{STATUS_GUIDANCE.get(lead_status, STATUS_GUIDANCE[DEFAULT_LEAD_STATUS])}\n\n"
             "You are speaking directly with a lead (a prospective customer) "
-            "who asked a question. Keep your answer short — 2 to 4 sentences "
-            "for most questions, like a real conversational reply, not a "
-            "comprehensive report. Answer only what they actually asked; "
-            "leave out other related details the excerpts happen to cover, "
-            "even if relevant-adjacent — they can always ask a follow-up. "
+            "who asked a question. Keep your answer genuinely short — under "
+            "40 words for most questions, like a real text message, not a "
+            "comprehensive report. Use short, simple sentences; don't stack "
+            "multiple ideas into one sentence with dashes or 'and'. Pick the "
+            "single most useful thing to say, not everything you could say. "
+            "Answer only what they actually asked; leave out other related "
+            "details the excerpts happen to cover, even if relevant-"
+            "adjacent — they can always ask a follow-up. "
             "The excerpts below are internal reference "
             "material describing how our team approaches this topic — they "
             "exist to inform your understanding, not to be quoted or pasted "
